@@ -5,26 +5,109 @@ export type AuthTokens = {
   refresh: string;
 };
 
-const STORAGE_KEY = 'school229_auth_tokens';
+const ACCESS_COOKIE_NAME = 'school229_access_token';
+const REFRESH_COOKIE_NAME = 'school229_refresh_token';
+const LEGACY_STORAGE_KEY = 'school229_auth_tokens';
+
+export function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const cookies = document.cookie ? document.cookie.split('; ') : [];
+  for (const cookie of cookies) {
+    const [key, ...valParts] = cookie.split('=');
+    if (key.trim() === name) {
+      return decodeURIComponent(valParts.join('='));
+    }
+  }
+  return null;
+}
+
+export function setCookie(
+  name: string,
+  value: string,
+  options: { maxAge?: number; path?: string; sameSite?: 'lax' | 'strict' | 'none'; secure?: boolean } = {}
+) {
+  if (typeof document === 'undefined') return;
+
+  const { maxAge = 60 * 60 * 24 * 7, path = '/', sameSite = 'lax' } = options;
+  const isSecure = options.secure ?? (typeof window !== 'undefined' && window.location.protocol === 'https:');
+
+  let cookieStr = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=${path}; max-age=${maxAge}; samesite=${sameSite}`;
+  if (isSecure) {
+    cookieStr += '; secure';
+  }
+  document.cookie = cookieStr;
+}
+
+export function deleteCookie(name: string, path = '/') {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${encodeURIComponent(name)}=; path=${path}; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+}
 
 export function getStoredAuthTokens(): AuthTokens | null {
   if (typeof window === 'undefined') return null;
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as AuthTokens) : null;
-  } catch {
-    return null;
+
+  const access = getCookie(ACCESS_COOKIE_NAME);
+  const refresh = getCookie(REFRESH_COOKIE_NAME);
+
+  if (access || refresh) {
+    return {
+      access: access || '',
+      refresh: refresh || '',
+    };
   }
+
+  // Rétrocompatibilité : migration si un ancien token réside dans localStorage
+  try {
+    const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as AuthTokens;
+      if (parsed?.access || parsed?.refresh) {
+        setStoredAuthTokens(parsed);
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
 export function setStoredAuthTokens(tokens: AuthTokens) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
+
+  if (tokens.access) {
+    setCookie(ACCESS_COOKIE_NAME, tokens.access, { maxAge: 60 * 60 * 24 * 7 });
+  } else {
+    deleteCookie(ACCESS_COOKIE_NAME);
+  }
+
+  if (tokens.refresh) {
+    setCookie(REFRESH_COOKIE_NAME, tokens.refresh, { maxAge: 60 * 60 * 24 * 30 });
+  } else {
+    deleteCookie(REFRESH_COOKIE_NAME);
+  }
+
+  // Nettoyage de l'ancien localStorage
+  try {
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function clearAuthTokens() {
   if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(STORAGE_KEY);
+
+  deleteCookie(ACCESS_COOKIE_NAME);
+  deleteCookie(REFRESH_COOKIE_NAME);
+
+  try {
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function isAuthenticated() {

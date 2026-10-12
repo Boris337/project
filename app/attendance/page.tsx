@@ -54,7 +54,7 @@ export default function AttendancePage() {
         setSelectedClassId(initialClassId);
 
         const initialStudents = studentsList.filter(
-          (student) => student.school && classesData.some((classe) => classe.id === initialClassId && classe.school === student.school)
+          (student) => student.school && classesData.some((classe: any) => classe.id === initialClassId && classe.school === student.school)
         );
         const statusMap = Object.fromEntries(initialStudents.map((student) => [student.id, 'PRESENT']));
         setAttendanceStatuses(statusMap);
